@@ -7,6 +7,7 @@ import os
 import time
 import argparse
 from moviepy.editor import VideoFileClip
+from scipy.ndimage.measurements import label
 from sklearn.externals import joblib
 from sklearn.svm import LinearSVC
 from sklearn.preprocessing import StandardScaler
@@ -83,7 +84,7 @@ def extract_features(imgs, cspace='RGB', spatial_size=(32, 32),
         # RUBRIC POINT:
         # - Optionally, you can also apply a color transform and append binned color features, as well as histograms of color, to your HOG feature vector.
 
-        # TODO: Make this function use the use_spatial_feat, use_hist_feat, and use_hog_feat configurations also (single_image_feat() already does this).
+        # TODO: Make this function use the use_spatial_feat, use_hist_feat, and use_hog_feat configurations also (single_img_feat() already does this).
         
         # Apply bin_spatial() to get spatial color features
         spatial_features = bin_spatial(feature_image, size=spatial_size)
@@ -113,29 +114,37 @@ def extract_features(imgs, cspace='RGB', spatial_size=(32, 32),
     return features
     
 
-
-# Define a function to extract features from a single image window
-# This function is very similar to extract_features()
-# just for a single image rather than list of images
-def single_img_features(img, color_space='RGB', spatial_size=(32, 32),
+def single_img_features(feature_image, color_space='RGB', spatial_size=(32, 32),
                         hist_bins=32, orient=9, 
                         pix_per_cell=8, cell_per_block=2, hog_channel=0,
-                        use_spatial_feat=True, use_hist_feat=True, use_hog_feat=True):    
+                        use_spatial_feat=True, use_hist_feat=True, use_hog_feat=True,
+                        hog_features_param=None):
+    """
+    Returns the features for a single image (or in our use-case, a window portion of a larger image).
+    This function is very similar to extract_features()
+    just for a single image rather than list of images
+    
+    If hog_features is provided, then it is used directly. If it is "None" then it will be calculated
+    by calling get_hog_features(). This is used because the parent function is doing
+    HOG sub-sampling for performance reasons, so it may already know the HOG features
+    for this image patch.
+    """
     #1) Define an empty list to receive features
     img_features = []
 
+    # TODO: REMOVE? WE WILL HAVE CONVERTED THIS OUTSIDE OF THIS METHOD INSTEAD.
     #2) Apply color conversion if other than 'RGB'
-    color_spaces = {
-        'HSV': cv2.COLOR_RGB2HSV,
-        'LUV': cv2.COLOR_RGB2LUV,
-        'HLS': cv2.COLOR_RGB2HLS,
-        'YUV': cv2.COLOR_RGB2YUV,
-        'YCrCb': cv2.COLOR_RGB2YCrCb
-    }
-    if color_space in color_spaces:
-        feature_image = cv2.cvtColor(img, color_spaces[color_space])
-    else:
-        feature_image = np.copy(img)
+    # color_spaces = {
+        # 'HSV': cv2.COLOR_RGB2HSV,
+        # 'LUV': cv2.COLOR_RGB2LUV,
+        # 'HLS': cv2.COLOR_RGB2HLS,
+        # 'YUV': cv2.COLOR_RGB2YUV,
+        # 'YCrCb': cv2.COLOR_RGB2YCrCb
+    # }
+    # if color_space in color_spaces:
+        # feature_image = cv2.cvtColor(img, color_spaces[color_space])
+    # else:
+        # feature_image = np.copy(img)
 
     #3) Compute spatial features if flag is set
     if use_spatial_feat == True:
@@ -149,16 +158,26 @@ def single_img_features(img, color_space='RGB', spatial_size=(32, 32),
         img_features.append(hist_features)
     #7) Compute HOG features if flag is set
     if use_hog_feat == True:
-        if hog_channel == 'ALL':
-            hog_features = []
-            for channel in range(feature_image.shape[2]):
-                hog_features.extend(get_hog_features(feature_image[:,:,channel], 
-                                    orient, pix_per_cell, cell_per_block, 
-                                    vis=False, feature_vec=True))      
+        # It's possible we already have the features passed in. If not, then we calculate them.
+        if hog_features_param is None:
+            print("ACTUALLY EXTRACTING HOG FEATURES FOR AN INDIVIDUAL IMAGE. THIS SHOULD NOT HAPPEN WHEN SUBSAMPLING.") # TODO: REMOVE?
+            if hog_channel == 'ALL':
+                hog_features = []
+                for channel in range(feature_image.shape[2]):
+                    hog_channel = get_hog_features(feature_image[:,:,channel], 
+                                        orient, pix_per_cell, cell_per_block, 
+                                        vis=False, feature_vec=True)
+                    #print("Normal method's hog-channel shape: ", hog_channel.shape)
+                    hog_features.extend(hog_channel)
+            else:
+                hog_features = get_hog_features(feature_image[:,:,hog_channel], orient, 
+                                                pix_per_cell, cell_per_block, vis=False, feature_vec=True)
         else:
-            hog_features = get_hog_features(feature_image[:,:,hog_channel], orient, 
-                                            pix_per_cell, cell_per_block, vis=False, feature_vec=True)
+            hog_features = hog_features_param
         #8) Append features to list
+        #print("HOG SUBSMP SHAPE: ",len(hog_features_param)," - HOG NORMAL SHAPE: ",len(hog_features), "  " + " - HOG DATA MISMATCH!! " if len(hog_features_param) != len(hog_features) else "")
+        #print("HOG SUBSMP: ",hog_features_param[0:10])
+        #print("HOG NORMAL: ",hog_features[0:10])
         img_features.append(hog_features)
 
     #9) Return concatenated array of features
@@ -246,14 +265,27 @@ def search_windows(img, windows, clf, scaler, color_space='RGB',
                     hist_range=(0, 256), orient=9, 
                     pix_per_cell=8, cell_per_block=2, 
                     hog_channel=0, use_spatial_feat=True, 
-                    use_hist_feat=True, use_hog_feat=True):
+                    use_hist_feat=True, use_hog_feat=True,
+                    hog_channels=None):
     """
     Given an image, a list of windows to search in, and a trained classifier & scaler...
     this will search each window on the image and try to classify whether it contains a car.
     
     The result will be an image which has bounding-boxes drawn on areas that appear to be a car.
+    
+    "windows" is an array of 2-tuples where the first value of the tuple is the coordinates of the
+    top-left corner of the window and the second value is the coordinates of the bottom-right corner
+    of the window.
+    
+    If hog_channels is provided, it is assumed to be a 3-tuple of hog information (each item in the
+    tuple is the hog features for one channel). If "None", then the HOG features will be calculated
+    from scratch for each window.
     """
     
+    if hog_channels is not None:
+        #print("Using HOG subsampling") # TODO: REMOVE
+        (hog1, hog2, hog3) = hog_channels
+
     # RUBRIC POINT:
     # Implement a sliding-window technique and use your trained classifier to search for vehicles in images
     
@@ -261,8 +293,29 @@ def search_windows(img, windows, clf, scaler, color_space='RGB',
     on_windows = []
     #2) Iterate over all windows in the list
     for window in windows:
-        #3) Extract the test window from original image
-        test_img = cv2.resize(img[window[0][1]:window[1][1], window[0][0]:window[1][0]], (64, 64))      
+        #3) Extract the test window from original image... always ensure output
+        #   is 64x64 to match training data (that's all the classifier can work with).
+        test_img = cv2.resize(img[window[0][1]:window[1][1], window[0][0]:window[1][0]], (64, 64))
+        
+        # Do HOG sub-sampling if available.
+        if hog_channels is None:
+            hog_sub_features = None
+        else:
+            # Extract HOG features for this patch
+            window_width = window_height = 64 # we always scale it to be this size in reality
+            #window_width = window[1][0] - window[0][0]
+            #window_height = window[1][1] - window[0][1]
+            nblocks_per_window_x = (window_width // pix_per_cell) - cell_per_block + 1
+            nblocks_per_window_y = (window_height // pix_per_cell) - cell_per_block + 1
+            
+            xpos = window[0][0] // pix_per_cell
+            ypos = window[0][1] // pix_per_cell
+            # TODO: FIXME: This assumes we're using "ALL" channels. It shouldn't assume that even though that's all we're going to use.
+            hog_feat1 = hog1[ypos:ypos+nblocks_per_window_y, xpos:xpos+nblocks_per_window_x].ravel()
+            hog_feat2 = hog2[ypos:ypos+nblocks_per_window_y, xpos:xpos+nblocks_per_window_x].ravel()
+            hog_feat3 = hog3[ypos:ypos+nblocks_per_window_y, xpos:xpos+nblocks_per_window_x].ravel()
+            #print("HOG SUBSAMPLED INDIVIDUAL CHANNEL: ",hog_feat1.shape)
+            hog_sub_features = np.hstack((hog_feat1, hog_feat2, hog_feat3)).ravel()
 
         #4) Extract features for that window using single_img_features()
         features = single_img_features(test_img, color_space=color_space, 
@@ -270,7 +323,8 @@ def search_windows(img, windows, clf, scaler, color_space='RGB',
                             orient=orient, pix_per_cell=pix_per_cell, 
                             cell_per_block=cell_per_block, 
                             hog_channel=hog_channel, use_spatial_feat=use_spatial_feat, 
-                            use_hist_feat=use_hist_feat, use_hog_feat=use_hog_feat)
+                            use_hist_feat=use_hist_feat, use_hog_feat=use_hog_feat,
+                            hog_features_param=hog_sub_features)
         #5) Scale extracted features to be fed to classifier
         reshaped_features = np.array(features).reshape(1, -1)
         
@@ -297,6 +351,7 @@ def process_image(image, do_output=False, image_name="", image_was_jpg=False):
                    means that we need to scale the color to be 0-1 instead of 0-255 to match the
                    training-images that were loaded as pngs.
     """
+    global recent_hot_windows
 
     image_name, image_extension = os.path.splitext(image_name)
     
@@ -328,30 +383,166 @@ def process_image(image, do_output=False, image_name="", image_was_jpg=False):
         plt.imsave(os.path.join(OUT_DIR, "010-all-windows-"+image_name+".png"), window_image)
         plt.close()
         
-    # TODO: EXTRACT HOG FEATURES FOR THE WHOLE WINDOW HERE, THEN USE SUB-SAMPLING IN SEARCH-WINDOWS
+    # Extract the HOG features for the whole image here, then we will pass this into search_windows
+    # which will sub-sample from this array to get the HOG features for each desired window.
+    color_spaces = {
+        'HSV': cv2.COLOR_RGB2HSV,
+        'LUV': cv2.COLOR_RGB2LUV,
+        'HLS': cv2.COLOR_RGB2HLS,
+        'YUV': cv2.COLOR_RGB2YUV,
+        'YCrCb': cv2.COLOR_RGB2YCrCb
+    }
+    if colorspace in color_spaces:
+        converted_image = cv2.cvtColor(image, color_spaces[colorspace])
+    else:
+        converted_image = np.copy(image)
+    ch1 = converted_image[:,:,0]
+    ch2 = converted_image[:,:,1]
+    ch3 = converted_image[:,:,2]
+    hog1 = get_hog_features(ch1, orient, pix_per_cell, cell_per_block, vis=False, feature_vec=False)
+    hog2 = get_hog_features(ch2, orient, pix_per_cell, cell_per_block, vis=False, feature_vec=False)
+    hog3 = get_hog_features(ch3, orient, pix_per_cell, cell_per_block, vis=False, feature_vec=False)
+    #print("IMAGE SHAPE: ",converted_image.shape)
+    #print("HOG1 SHAPE: ",hog1.shape)
+    #print("HOG2 SHAPE: ",hog2.shape)
+    #print("HOG3 SHAPE: ",hog3.shape)
     
     # Do the sliding-window search across the image to find "hot" windows where it appears
     # that there is a car.
-    hot_windows = search_windows(image, windows, svc, X_scaler, color_space=colorspace, 
-                        spatial_size=(spatial, spatial), hist_bins=histbin, 
-                        orient=orient, pix_per_cell=pix_per_cell, 
-                        cell_per_block=cell_per_block, 
-                        hog_channel=hog_channel, use_spatial_feat=use_spatial_feat, 
-                        use_hist_feat=use_hist_feat, use_hog_feat=use_hog_feat)
+    # hot_windows = search_windows(image, windows, svc, X_scaler, color_space=colorspace, 
+                        # spatial_size=(spatial, spatial), hist_bins=histbin, 
+                        # orient=orient, pix_per_cell=pix_per_cell, 
+                        # cell_per_block=cell_per_block, 
+                        # hog_channel=hog_channel, use_spatial_feat=use_spatial_feat, 
+                        # use_hist_feat=use_hist_feat, use_hog_feat=use_hog_feat,
+                        # hog_channels=(hog1, hog2, hog3))
+                    
+    # TODO: OMG.. PROFILE TO SEE IF IT REALLY IS INFINITELY FASTER TO USE THIS THAN TO HAVE search_windows BE A SEPARATE FUNCTION!
+    # THE ONLY REASON I THINK THAT COULD BE THE CASE IS THAT I THINK IT MIGHT BE COPYING THE GIANT hog_channels TUPLE ALL THE TIME.
+    hot_windows = []
+    #2) Iterate over all windows in the list
+    for window in windows:
+        #3) Extract the test window from original image... always ensure output
+        #   is 64x64 to match training data (that's all the classifier can work with).
+        test_img = cv2.resize(converted_image[window[0][1]:window[1][1], window[0][0]:window[1][0]], (64, 64))
+        
+        # Do HOG sub-sampling if available.
+        #if hog_channels is None:
+        #    hog_sub_features = None
+        #else:
+        # Extract HOG features for this patch
+        window_width = window_height = 64 # we always scale it to be this size in reality
+        nblocks_per_window_x = (window_width // pix_per_cell) - cell_per_block + 1
+        nblocks_per_window_y = (window_height // pix_per_cell) - cell_per_block + 1
+        
+        xpos = window[0][0] // pix_per_cell
+        ypos = window[0][1] // pix_per_cell
+        # TODO: FIXME: This assumes we're using "ALL" channels. It shouldn't assume that even though that's all we're going to use.
+        hog_feat1 = hog1[ypos:ypos+nblocks_per_window_y, xpos:xpos+nblocks_per_window_x].ravel()
+        hog_feat2 = hog2[ypos:ypos+nblocks_per_window_y, xpos:xpos+nblocks_per_window_x].ravel()
+        hog_feat3 = hog3[ypos:ypos+nblocks_per_window_y, xpos:xpos+nblocks_per_window_x].ravel()
+        #print("HOG SUBSAMPLED INDIVIDUAL CHANNEL: ",hog_feat1.shape)
+        hog_sub_features = np.hstack((hog_feat1, hog_feat2, hog_feat3)).ravel()
 
-    hot_window_image = draw_boxes(image, hot_windows, color=box_color, thick=6)
+        #4) Extract features for that window using single_img_features()
+        features = single_img_features(test_img, color_space=colorspace, 
+                            spatial_size=(spatial,spatial), hist_bins=histbin, 
+                            orient=orient, pix_per_cell=pix_per_cell, 
+                            cell_per_block=cell_per_block, 
+                            hog_channel=hog_channel, use_spatial_feat=use_spatial_feat, 
+                            use_hist_feat=use_hist_feat, use_hog_feat=use_hog_feat,
+                            hog_features_param=hog_sub_features)
+        #5) Scale extracted features to be fed to classifier
+        reshaped_features = np.array(features).reshape(1, -1)
+        
+        test_features = X_scaler.transform(reshaped_features)
+        #6) Predict using your classifier
+        prediction = svc.predict(test_features)
+        
+        # TODO: REMOVE... JUST TRYING TO DEBUG THE PREDICTIONS
+        #print("CONFIDENCE: ",svc.decision_function(test_features))
+        
+        
+        #7) If positive (prediction == 1) then save the window
+        if prediction == 1:
+            hot_windows.append(window)
+
+    # Instead of drawing the bounding-boxes directly, we'll use a heatmap to find the best fits.
     if do_output:
-        plt.imsave(os.path.join(OUT_DIR, "011-hot-windows-"+image_name+".png"), hot_window_image)
+        hot_windows_temp_image = draw_boxes(image, hot_windows, color=box_color, thick=6)
+        plt.imsave(os.path.join(OUT_DIR, "011-hot-windows-"+image_name+".png"), hot_windows_temp_image)
         plt.close()
-
-    # TODO: HEATMAPS TO PREVENT FALSE POSITIVES AND COMBINE OVERLAPPING DETECTIONS.
-
-    if do_output:
+        
         plt.imsave(os.path.join(OUT_DIR, "010-boxes-"+image_name+".png"), window_image)
         plt.close()
 
-    return hot_window_image
+    # TODO: HEATMAPS TO PREVENT FALSE POSITIVES AND COMBINE OVERLAPPING DETECTIONS.
+    # == HEATMAPPING THE RECENT X FRAMES ==
+    NUM_FRAMES_TO_REMEMBER = 5
+    MIN_BOXES_NEEDED = 15 # remember: there are multiple (often overlappign) boxes per video-frame
+    while( len(recent_hot_windows) >= NUM_FRAMES_TO_REMEMBER ):
+        # Deletes the oldest set of hot windows
+        del recent_hot_windows[0]
+    recent_hot_windows.append( hot_windows ) # adds the new frame's hot windows
+    heat = np.zeros_like(image[:,:,0]).astype(np.float)
     
+    # Add heat to each box in box list - TODO: DO WE NEED TO ITERATE FOR THIS?
+    for hot_wins in recent_hot_windows:
+        heat = add_heat(heat, hot_wins)
+    
+    # Apply threshold to help remove false positives
+    heat = apply_threshold(heat, MIN_BOXES_NEEDED)
+    
+    # Visualize the heatmap when displaying
+    heatmap = np.clip(heat, 0, 255)
+    labels = label(heatmap)
+    hot_window_image = draw_labeled_bboxes(np.copy(image), labels, color=box_color)
+
+    if do_output:
+        fig = plt.figure()
+        plt.subplot(121)
+        plt.imshow(hot_window_image)
+        plt.title('Car Positions')
+        plt.subplot(122)
+        plt.imshow(heatmap, cmap='hot')
+        plt.title('Heat Map')
+        fig.tight_layout()
+        plt.savefig(os.path.join(OUT_DIR, "015-heatmap-"+image_name+".png"))
+        plt.close()    
+
+    return hot_window_image
+
+def add_heat(heatmap, bbox_list):
+    # Iterate through list of bboxes
+    for box in bbox_list:
+        # Add += 1 for all pixels inside each bbox
+        # Assuming each "box" takes the form ((x1, y1), (x2, y2))
+        heatmap[box[0][1]:box[1][1], box[0][0]:box[1][0]] += 1
+
+    # Return updated heatmap
+    return heatmap# Iterate through list of bboxes
+    
+def apply_threshold(heatmap, threshold):
+    # Zero out pixels below the threshold
+    heatmap[heatmap <= threshold] = 0
+    # Return thresholded map
+    return heatmap
+
+def draw_labeled_bboxes(img, labels, color=(0,0,255)):
+    # Iterate through all detected cars
+    for car_number in range(1, labels[1]+1):
+        # Find pixels with each car_number label value
+        nonzero = (labels[0] == car_number).nonzero()
+        # Identify x and y values of those pixels
+        nonzeroy = np.array(nonzero[0])
+        nonzerox = np.array(nonzero[1])
+        # Define a bounding box based on min/max x and y
+        bbox = ((np.min(nonzerox), np.min(nonzeroy)), (np.max(nonzerox), np.max(nonzeroy)))
+        # Draw the box on the image
+        cv2.rectangle(img, bbox[0], bbox[1], color, 6)
+    # Return the image
+    return img
+
     
 ###############################################################
 # MAIN EXECUTION BEGINS HERE!!!
@@ -516,6 +707,9 @@ print('For these',n_predict, 'labels: ', y_test[0:n_predict])
 t2 = time.time()
 print(round(t2-t, 5), 'Seconds to predict', n_predict,'labels with SVC')
 
+# A global which will store a list of the most recent X collections of hot-windows, for use in heatmapping.
+recent_hot_windows = []
+
 # == STATIC IMAGES FOR TESTING OUR SOLUTION ==
 # Process and save each file that exists in the input directory.
 if DO_IMAGES:
@@ -544,9 +738,10 @@ if DO_IMAGES:
         saveFile = os.path.join(OUT_DIR, files[file_index])
         plt.imsave(saveFile, image)
     print("Done processing static images.")
-
+    
 # Video processing
 if DO_TEST_VIDEO:
+    recent_hot_windows = []
     print("Processing short video file...")
     video_input_filename = os.path.join(VIDEO_IN_DIR, 'test_video.mp4')
     video_output_filename = os.path.join(VIDEO_OUT_DIR, 'test_video.mp4')
@@ -557,6 +752,7 @@ if DO_TEST_VIDEO:
 
 # print("Processing full project video file...")
 if DO_PROJECT_VIDEO:
+    recent_hot_windows = []
     video_input_filename = os.path.join(VIDEO_IN_DIR, 'project_video.mp4')
     video_output_filename = os.path.join(VIDEO_OUT_DIR, 'project_video.mp4')
     clip1 = VideoFileClip(video_input_filename)
@@ -568,14 +764,12 @@ if DO_PROJECT_VIDEO:
 
 
 script_end_time = time.time()
-print("Entire script took ",round(script_end_time-script_start_time, 2),"seconds")
+print("Entire script took ",round(script_end_time-script_start_time, 2),"seconds\a\a")
 
 # TODO:
-# Implement HOG sub-sampling instead of doing HOG for every frame of the video.
-# - USE HEATMAPS TO REMOVE DUPLICATES AND FALSE DETECTIONS.
-# * Estimate a bounding box for vehicles detected.
-# * Run your pipeline on a video stream (start with the test_video.mp4 and later implement on full project_video.mp4) and
-## create a heat map of recurring detections frame by frame to reject outliers and follow detected vehicles.
+# DONE: BUT SLOW... WTF?! Implement HOG sub-sampling instead of doing HOG for every frame of the video.
+# Should probably use the vis parameter of get_hog_features() at some point to output the feature-vectors we detect.
 # POSSIBLY JUST EXTRA:
 ###################################################### TRY THIS.... TRAINING IS TAKING TOO LONG!!!!
+# TODO: FIGURE OUT HOW IN THE HECK HOG SUBSAMPLING MADE THE SCRIPT SLOWER! IS IT COPYING THE DATA A TON OF TIMES TO PASS IT INTO search_windows? PERHAPS THAT FUNCTION NEEDS TO BE PULLED INLINE?
 # PROBABLY NOT NEEDED (classifier already has great accuracy): Could use extra data from Udacity dataset for training (unlikely this will be needed): https://github.com/udacity/self-driving-car/tree/master/annotations
