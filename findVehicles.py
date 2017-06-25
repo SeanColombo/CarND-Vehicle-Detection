@@ -3,9 +3,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import cv2
 import glob
+import os
 import time
 from sklearn.svm import LinearSVC
 from sklearn.preprocessing import StandardScaler
+from skimage.feature import hog
 # NOTE: the next import is only valid 
 # for scikit-learn version >= 0.18
 # if you are using scikit-learn <= 0.17 then use this:
@@ -71,10 +73,10 @@ def extract_features(imgs, cspace='RGB', spatial_size=(32, 32),
             'YUV': cv2.COLOR_RGB2YUV,
             'YCrCb': cv2.COLOR_RGB2YCrCb
         }
-        if color_space in color_spaces:
-            feature_image = cv2.cvtColor(img, color_spaces[color_space])
+        if cspace in color_spaces:
+            feature_image = cv2.cvtColor(image, color_spaces[cspace])
         else:
-            feature_image = np.copy(img) 
+            feature_image = np.copy(image)
 
         # RUBRIC POINT:
         # - Optionally, you can also apply a color transform and append binned color features, as well as histograms of color, to your HOG feature vector.
@@ -96,34 +98,45 @@ def extract_features(imgs, cspace='RGB', spatial_size=(32, 32),
                                     vis=False, feature_vec=True))
             hog_features = np.ravel(hog_features)        
         else:
-            hog_features = get_hog_features(feature_image[:,:,hog_channel], orient, 
-                        pix_per_cell, cell_per_block, vis=False, feature_vec=True)
+            hog_features = get_hog_features(feature_image[:,:,hog_channel], orient, pix_per_cell, cell_per_block, vis=False, feature_vec=True)
 
         # Append the new feature vector to the features list
-        features.append(np.concatenate((spatial_features, hist_features, hog_features)))
+        # TODO: UNTOGGLE THIS TO USE SPATIAL AND HIST FEATURES ALSO!!! DOING ONLY-HOG IS PROBABLY JUST A STARTING POINT!!!
+        #features.append(np.concatenate((spatial_features, hist_features, hog_features)))
+        features.append(hog_features)
+
     # Return list of feature vectors
     return features
+
     
     
     
     
     
+    
+###############################################################
+# MAIN EXECUTION BEGINS HERE!!!
     
 IN_DIR = "test_images"    
 OUT_DIR = "output_images"
+CAR_DIR = "../vehicles"
+NOT_CAR_DIR = "../non-vehicles"
 VIDEO_IN_DIR = "."
+VIDEO_OUT_DIR = OUT_DIR # this is easier and the rubric doesn't seem to specify where we have to do it
+
+# Ensure the output directory for images/videos exist so that we can write to them.
+if not os.path.exists(VIDEO_OUT_DIR):
+    os.makedirs(VIDEO_OUT_DIR)
+if not os.path.exists(OUT_DIR):
+    os.makedirs(OUT_DIR)
     
-    
-print "Loading training images..."
-images = glob.glob('*.jpeg')
-cars = []
-notcars = []
-for image in images:
-    if 'image' in image or 'extra' in image:
-        notcars.append(image)
-    else:
-        cars.append(image)
-        
+# Load the training data from the directories for each class of images.
+print("Loading training images...")
+cars = glob.glob(CAR_DIR+"/**/*.png", recursive=True)
+notcars = glob.glob(NOT_CAR_DIR+"/**/*.png", recursive=True)
+print("NUM CAR IMAGES FOUND FOR TRAINING: ",len(cars))
+print("NUM NON-CARS FOUND FOR TRAINING: ",len(notcars))
+
 #### FEATURE PARAMETERS!! ####
 spatial = 32
 histbin = 64
@@ -133,41 +146,48 @@ pix_per_cell = 8
 cell_per_block = 2
 hog_channel = "ALL" # Can be 0, 1, 2, or "ALL"
 
-print "Extracting features..."
+print("Extracting features...")
+t=time.time()
 car_features = extract_features(cars, cspace=colorspace, spatial_size=(spatial, spatial),
                         hist_bins=histbin, hist_range=(0, 256),
                         orient=orient, pix_per_cell=pix_per_cell, cell_per_block=cell_per_block, hog_channel=hog_channel)
 notcar_features = extract_features(notcars, cspace=colorspace, spatial_size=(spatial, spatial),
                         hist_bins=histbin, hist_range=(0, 256),
                         orient=orient, pix_per_cell=pix_per_cell, cell_per_block=cell_per_block, hog_channel=hog_channel)
+t2 = time.time()
+print(round(t2-t, 2), 'Seconds to extract features.')
 
 # RUBRIC POINT:
 # - Don't forget to normalize your features
-print "Normalizing features..."
-# Create an array stack of feature vectors
-X = np.vstack((car_features, notcar_features)).astype(np.float64)                        
-# Fit a per-column scaler
-X_scaler = StandardScaler().fit(X)
-# Apply the scaler to X
-scaled_X = X_scaler.transform(X)
+if len(car_features) > 0:
+    print("Normalizing features...")
+    # Create an array stack of feature vectors
+    X = np.vstack((car_features, notcar_features)).astype(np.float64)                        
+    # Fit a per-column scaler
+    X_scaler = StandardScaler().fit(X)
+    # Apply the scaler to X
+    scaled_X = X_scaler.transform(X)
 
-# Plot an example of raw and scaled features
-print "Plotting raw vs. normalized features..."
-car_ind = np.random.randint(0, len(cars))
-fig = plt.figure(figsize=(12,4))
-plt.subplot(131)
-plt.imshow(mpimg.imread(cars[car_ind]))
-plt.title('Original Image')
-plt.subplot(132)
-plt.plot(X[car_ind])
-plt.title('Raw Features')
-plt.subplot(133)
-plt.plot(scaled_X[car_ind])
-plt.title('Normalized Features')
-fig.tight_layout()
-plt.savefig(os.path.join(OUT_DIR, "x-normalized-vs-undistorted.png"))
-plt.close()
-print "Done with plot."
+    # Plot an example of raw and scaled features
+    print("Plotting raw vs. normalized features...")
+    car_ind = np.random.randint(0, len(cars))
+    fig = plt.figure(figsize=(12,4))
+    plt.subplot(131)
+    plt.imshow(mpimg.imread(cars[car_ind]))
+    plt.title('Original Image')
+    plt.subplot(132)
+    plt.plot(X[car_ind])
+    plt.title('Raw Features')
+    plt.subplot(133)
+    plt.plot(scaled_X[car_ind])
+    plt.title('Normalized Features')
+    fig.tight_layout()
+    plt.savefig(os.path.join(OUT_DIR, "x-normalized-vs-undistorted.png"))
+    plt.close()
+    print("Done with plot.")
+else: 
+    print('ERROR: The function only returns empty feature vectors!')
+    exit()
 
 
 # Define the labels vector
@@ -205,6 +225,11 @@ print(round(t2-t, 5), 'Seconds to predict', n_predict,'labels with SVC')
 
 
 # TODO:
-# * Implement a sliding-window technique and use your trained classifier to search for vehicles in images.
+# * Implement a sliding-window technique and use your trained classifier to search for vehicles in images (remember: don't need to do the whole image, just the bottom)
+# - USE HEATMAPS TO REMOVE DUPLICATES AND FALSE DETECTIONS.
 # * Run your pipeline on a video stream (start with the test_video.mp4 and later implement on full project_video.mp4) and create a heat map of recurring detections frame by frame to reject outliers and follow detected vehicles.
 # * Estimate a bounding box for vehicles detected.
+# POSSIBLY JUST EXTRA:
+# Implement HOG sub-sampling instead of doing HOG for every frame of the video.
+## Remember to only do the HOG sampling on PART of the image... don't need to do the whole image.
+# Could use extra data from Udacity dataset for training (unlikely this will be needed): https://github.com/udacity/self-driving-car/tree/master/annotations
