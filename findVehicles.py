@@ -270,9 +270,14 @@ def search_windows(img, windows, clf, scaler, color_space='RGB',
     from scratch for each window.
     """
     
+    # We can use HOG subsampling if the full-image HOG features are provided (per-channel)
     if hog_channels is not None:
-        #print("Using HOG subsampling") # TODO: REMOVE
         (hog1, hog2, hog3) = hog_channels
+        # NOTE: The test_img is scaled to 64x64, so that's the only width/height dimensions we need.
+        window_width = 64#test_img.shape[0]#window[1][0] - window[0][0]
+        window_height = 64#test_img.shape[1]#window[1][1] - window[0][1]
+        nblocks_per_window_x = (window_width // pix_per_cell) - cell_per_block + 1
+        nblocks_per_window_y = (window_height // pix_per_cell) - cell_per_block + 1
 
     # RUBRIC POINT:
     # Implement a sliding-window technique and use your trained classifier to search for vehicles in images
@@ -281,7 +286,7 @@ def search_windows(img, windows, clf, scaler, color_space='RGB',
     on_windows = []
     #2) Iterate over all windows in the list
     for window in windows:
-        #3) Extract the test window from original image... always ensure output
+        #3) Extract the test window from original image... always ensure that the output
         #   is 64x64 to match training data (that's all the classifier can work with).
         test_img = cv2.resize(img[window[0][1]:window[1][1], window[0][0]:window[1][0]], (64, 64))
         
@@ -290,12 +295,6 @@ def search_windows(img, windows, clf, scaler, color_space='RGB',
             hog_sub_features = None
         else:
             # Extract HOG features for this patch
-            window_width = window_height = 64 # we always scale it to be this size in reality
-            #window_width = window[1][0] - window[0][0]
-            #window_height = window[1][1] - window[0][1]
-            nblocks_per_window_x = (window_width // pix_per_cell) - cell_per_block + 1
-            nblocks_per_window_y = (window_height // pix_per_cell) - cell_per_block + 1
-            
             xpos = window[0][0] // pix_per_cell
             ypos = window[0][1] // pix_per_cell
             # TODO: FIXME: This assumes we're using "ALL" channels. It shouldn't assume that even though that's all we're going to use.
@@ -315,13 +314,15 @@ def search_windows(img, windows, clf, scaler, color_space='RGB',
                             hog_features_param=hog_sub_features)
         #5) Scale extracted features to be fed to classifier
         reshaped_features = np.array(features).reshape(1, -1)
-        
         test_features = scaler.transform(reshaped_features)
+
         #6) Predict using your classifier
         prediction = clf.predict(test_features)
+
         #7) If positive (prediction == 1) then save the window
         if prediction == 1:
             on_windows.append(window)
+
     #8) Return windows for positive detections
     return on_windows
 
@@ -752,10 +753,11 @@ if DO_PROJECT_VIDEO:
 script_end_time = time.time()
 print("Entire script took ",round(script_end_time-script_start_time, 2),"seconds\a\a")
 
+
+
 # TODO:
-# DONE: BUT SLOW... WTF?! Implement HOG sub-sampling instead of doing HOG for every frame of the video.
-# Should probably use the vis parameter of get_hog_features() at some point to output the feature-vectors we detect.
+#    Should probably use the 'vis' parameter of get_hog_features() at some point to output the feature-vectors we detect.
 # POSSIBLY JUST EXTRA:
-###################################################### TRY THIS.... TRAINING IS TAKING TOO LONG!!!!
-# TODO: FIGURE OUT HOW IN THE HECK HOG SUBSAMPLING MADE THE SCRIPT SLOWER! IS IT COPYING THE DATA A TON OF TIMES TO PASS IT INTO search_windows? PERHAPS THAT FUNCTION NEEDS TO BE PULLED INLINE?
-# PROBABLY NOT NEEDED (classifier already has great accuracy): Could use extra data from Udacity dataset for training (unlikely this will be needed): https://github.com/udacity/self-driving-car/tree/master/annotations
+#   Figure out why HOG subsampling did not make the script significantly faster. Did I do something wrong? Maybe profile the whole script.
+#   Could use extra data from Udacity dataset for training (unlikely this will be needed): https://github.com/udacity/self-driving-car/tree/master/annotations
+#       (the classifier has really high accuracy already, so that's probably not one of the bigger problems in the pipeline)
