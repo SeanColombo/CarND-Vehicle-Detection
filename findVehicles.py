@@ -132,19 +132,7 @@ def single_img_features(feature_image, color_space='RGB', spatial_size=(32, 32),
     #1) Define an empty list to receive features
     img_features = []
 
-    # TODO: REMOVE? WE WILL HAVE CONVERTED THIS OUTSIDE OF THIS METHOD INSTEAD.
-    #2) Apply color conversion if other than 'RGB'
-    # color_spaces = {
-        # 'HSV': cv2.COLOR_RGB2HSV,
-        # 'LUV': cv2.COLOR_RGB2LUV,
-        # 'HLS': cv2.COLOR_RGB2HLS,
-        # 'YUV': cv2.COLOR_RGB2YUV,
-        # 'YCrCb': cv2.COLOR_RGB2YCrCb
-    # }
-    # if color_space in color_spaces:
-        # feature_image = cv2.cvtColor(img, color_spaces[color_space])
-    # else:
-        # feature_image = np.copy(img)
+    #2) NOTE: The feature_image passed in must ALREADY be in the correct color-space!
 
     #3) Compute spatial features if flag is set
     if use_spatial_feat == True:
@@ -160,7 +148,7 @@ def single_img_features(feature_image, color_space='RGB', spatial_size=(32, 32),
     if use_hog_feat == True:
         # It's possible we already have the features passed in. If not, then we calculate them.
         if hog_features_param is None:
-            print("ACTUALLY EXTRACTING HOG FEATURES FOR AN INDIVIDUAL IMAGE. THIS SHOULD NOT HAPPEN WHEN SUBSAMPLING.") # TODO: REMOVE?
+            #print("ACTUALLY EXTRACTING HOG FEATURES FOR AN INDIVIDUAL IMAGE. THIS SHOULD NOT HAPPEN WHEN SUBSAMPLING.") # TODO: REMOVE?
             if hog_channel == 'ALL':
                 hog_features = []
                 for channel in range(feature_image.shape[2]):
@@ -402,34 +390,31 @@ def process_image(image, do_output=False, image_name="", image_was_jpg=False):
     hog1 = get_hog_features(ch1, orient, pix_per_cell, cell_per_block, vis=False, feature_vec=False)
     hog2 = get_hog_features(ch2, orient, pix_per_cell, cell_per_block, vis=False, feature_vec=False)
     hog3 = get_hog_features(ch3, orient, pix_per_cell, cell_per_block, vis=False, feature_vec=False)
-    #print("IMAGE SHAPE: ",converted_image.shape)
-    #print("HOG1 SHAPE: ",hog1.shape)
-    #print("HOG2 SHAPE: ",hog2.shape)
-    #print("HOG3 SHAPE: ",hog3.shape)
     
     # Do the sliding-window search across the image to find "hot" windows where it appears
     # that there is a car.
-    # hot_windows = search_windows(image, windows, svc, X_scaler, color_space=colorspace, 
-                        # spatial_size=(spatial, spatial), hist_bins=histbin, 
-                        # orient=orient, pix_per_cell=pix_per_cell, 
-                        # cell_per_block=cell_per_block, 
-                        # hog_channel=hog_channel, use_spatial_feat=use_spatial_feat, 
-                        # use_hist_feat=use_hist_feat, use_hog_feat=use_hog_feat,
-                        # hog_channels=(hog1, hog2, hog3))
+    hot_windows = search_windows(image, windows, svc, X_scaler, color_space=colorspace, 
+                        spatial_size=(spatial, spatial), hist_bins=histbin, 
+                        orient=orient, pix_per_cell=pix_per_cell, 
+                        cell_per_block=cell_per_block, 
+                        hog_channel=hog_channel, use_spatial_feat=use_spatial_feat, 
+                        use_hist_feat=use_hist_feat, use_hog_feat=use_hog_feat,
+                        hog_channels=(hog1, hog2, hog3))
                     
-    # TODO: OMG.. PROFILE TO SEE IF IT REALLY IS INFINITELY FASTER TO USE THIS THAN TO HAVE search_windows BE A SEPARATE FUNCTION!
-    # THE ONLY REASON I THINK THAT COULD BE THE CASE IS THAT I THINK IT MIGHT BE COPYING THE GIANT hog_channels TUPLE ALL THE TIME.
+    # TODO: REMOVE? I tried in-lining search_windows() function to see if passing the hog features as parameters was slow,
+    # but it doesn't appear to be a factor.
+    """
     hot_windows = []
-    #2) Iterate over all windows in the list
+    # 2) Iterate over all windows in the list
     for window in windows:
-        #3) Extract the test window from original image... always ensure output
-        #   is 64x64 to match training data (that's all the classifier can work with).
+        # 3) Extract the test window from original image... always ensure output
+          # is 64x64 to match training data (that's all the classifier can work with).
         test_img = cv2.resize(converted_image[window[0][1]:window[1][1], window[0][0]:window[1][0]], (64, 64))
         
         # Do HOG sub-sampling if available.
-        #if hog_channels is None:
-        #    hog_sub_features = None
-        #else:
+        # if hog_channels is None:
+           # hog_sub_features = None
+        # else:
         # Extract HOG features for this patch
         window_width = window_height = 64 # we always scale it to be this size in reality
         nblocks_per_window_x = (window_width // pix_per_cell) - cell_per_block + 1
@@ -441,10 +426,10 @@ def process_image(image, do_output=False, image_name="", image_was_jpg=False):
         hog_feat1 = hog1[ypos:ypos+nblocks_per_window_y, xpos:xpos+nblocks_per_window_x].ravel()
         hog_feat2 = hog2[ypos:ypos+nblocks_per_window_y, xpos:xpos+nblocks_per_window_x].ravel()
         hog_feat3 = hog3[ypos:ypos+nblocks_per_window_y, xpos:xpos+nblocks_per_window_x].ravel()
-        #print("HOG SUBSAMPLED INDIVIDUAL CHANNEL: ",hog_feat1.shape)
+        # print("HOG SUBSAMPLED INDIVIDUAL CHANNEL: ",hog_feat1.shape)
         hog_sub_features = np.hstack((hog_feat1, hog_feat2, hog_feat3)).ravel()
 
-        #4) Extract features for that window using single_img_features()
+        # 4) Extract features for that window using single_img_features()
         features = single_img_features(test_img, color_space=colorspace, 
                             spatial_size=(spatial,spatial), hist_bins=histbin, 
                             orient=orient, pix_per_cell=pix_per_cell, 
@@ -452,20 +437,21 @@ def process_image(image, do_output=False, image_name="", image_was_jpg=False):
                             hog_channel=hog_channel, use_spatial_feat=use_spatial_feat, 
                             use_hist_feat=use_hist_feat, use_hog_feat=use_hog_feat,
                             hog_features_param=hog_sub_features)
-        #5) Scale extracted features to be fed to classifier
+        # 5) Scale extracted features to be fed to classifier
         reshaped_features = np.array(features).reshape(1, -1)
         
         test_features = X_scaler.transform(reshaped_features)
-        #6) Predict using your classifier
+        # 6) Predict using your classifier
         prediction = svc.predict(test_features)
         
         # TODO: REMOVE... JUST TRYING TO DEBUG THE PREDICTIONS
-        #print("CONFIDENCE: ",svc.decision_function(test_features))
+        # print("CONFIDENCE: ",svc.decision_function(test_features))
         
         
-        #7) If positive (prediction == 1) then save the window
+        # 7) If positive (prediction == 1) then save the window
         if prediction == 1:
             hot_windows.append(window)
+    """
 
     # Instead of drawing the bounding-boxes directly, we'll use a heatmap to find the best fits.
     if do_output:
