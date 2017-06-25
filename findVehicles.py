@@ -162,8 +162,6 @@ def single_img_features(img, color_space='RGB', spatial_size=(32, 32),
         img_features.append(hog_features)
 
     #9) Return concatenated array of features
-    # TODO: FIXME: REMOVE WHICHEVER OF THESE DOES NOT WORK... AND MAKE SURE THIS OBEYS THE use_* SETTINGS!
-    #return np.concatenate((spatial_features, hist_features, hog_features))
     return np.concatenate(img_features)
 
 
@@ -311,14 +309,14 @@ def process_image(image, do_output=False, image_name="", image_was_jpg=False):
     # Get the sliding-window boundaries that we'll search for cars.
     # We use just the bottom area of the images since we don't expect flying-cars to interfere with our driving ;)
     y_start = int(image.shape[0] * 0.55)
-    x_start = int(image.shape[1] * 0.20) # ignore the far-left.. it's the shoulder of the road
+    x_start = int(image.shape[1] * 0.35) # ignore the far-left.. it's the shoulder of the road
     windows = slide_window(image, x_start_stop=[x_start, None], y_start_stop=[y_start, None], 
                            xy_window=(128, 128), xy_overlap=(0.5, 0.5))
     # Use multiple scales of windows... here we add a second scale which has much smaller windows, only processes
     # the top part of our area of interest (because that's the only place that cars are that small) and adds these
     # windows to our list
     y_start -= 16 # just to stagger it a bit from the bigger windows
-    x_start += 16
+    x_start = int(image.shape[1] * 0.45) # ignore the far-left.. it's the shoulder of the road
     y_stop = int(image.shape[0] * 0.80)
     windows.extend(slide_window(image, x_start_stop=[x_start, None], y_start_stop=[y_start, y_stop],
                            xy_window=(64, 64), xy_overlap=(0.5, 0.5)))
@@ -326,9 +324,11 @@ def process_image(image, do_output=False, image_name="", image_was_jpg=False):
     #                       xy_window=(64, 64), xy_overlap=(0.5, 0.5))
     if do_output:
         window_image = draw_boxes(image, windows, color=box_color, thick=6)
-        #window_image = draw_boxes(window_image, smaller_windows, color=(1.0,0,0), thick=4) # TODO: JUST MAKING SURE WE HAVE SMALL BOXES TOO
+        #window_image = draw_boxes(window_image, smaller_windows, color=(1.0,0,0), thick=4) # DEBUG: This was just used to render the smaller scaled windows
         plt.imsave(os.path.join(OUT_DIR, "010-all-windows-"+image_name+".png"), window_image)
         plt.close()
+        
+    # TODO: EXTRACT HOG FEATURES FOR THE WHOLE WINDOW HERE, THEN USE SUB-SAMPLING IN SEARCH-WINDOWS
     
     # Do the sliding-window search across the image to find "hot" windows where it appears
     # that there is a car.
@@ -564,19 +564,18 @@ if DO_PROJECT_VIDEO:
     print("Writing video file...")
     output_clip.write_videofile(video_output_filename, audio=False)
 
-    
-    
- 
+
+
+
 script_end_time = time.time()
 print("Entire script took ",round(script_end_time-script_start_time, 2),"seconds")
 
 # TODO:
+# Implement HOG sub-sampling instead of doing HOG for every frame of the video.
 # - USE HEATMAPS TO REMOVE DUPLICATES AND FALSE DETECTIONS.
 # * Estimate a bounding box for vehicles detected.
-# * Run your pipeline on a video stream (start with the test_video.mp4 and later implement on full project_video.mp4) and create a heat map of recurring detections frame by frame to reject outliers and follow detected vehicles.
+# * Run your pipeline on a video stream (start with the test_video.mp4 and later implement on full project_video.mp4) and
+## create a heat map of recurring detections frame by frame to reject outliers and follow detected vehicles.
 # POSSIBLY JUST EXTRA:
 ###################################################### TRY THIS.... TRAINING IS TAKING TOO LONG!!!!
-# Implement HOG sub-sampling instead of doing HOG for every frame of the video.
-## Remember to only do the HOG sampling on PART of the image... don't need to do the whole image.
-# Make multi-scale windows. Smaller windows only needed at the top of the search area. Maybe 4 sizes.
-# NOT NEEDED (classifier already has great accuracy): Could use extra data from Udacity dataset for training (unlikely this will be needed): https://github.com/udacity/self-driving-car/tree/master/annotations
+# PROBABLY NOT NEEDED (classifier already has great accuracy): Could use extra data from Udacity dataset for training (unlikely this will be needed): https://github.com/udacity/self-driving-car/tree/master/annotations
