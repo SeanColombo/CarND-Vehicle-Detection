@@ -114,7 +114,7 @@ def extract_features(imgs, cspace='RGB', spatial_size=(32, 32),
     return features
     
 
-def single_img_features(feature_image, color_space='RGB', spatial_size=(32, 32),
+def single_img_features(feature_image, spatial_size=(32, 32),
                         hist_bins=32, orient=9, 
                         pix_per_cell=8, cell_per_block=2, hog_channel=0,
                         use_spatial_feat=True, use_hist_feat=True, use_hog_feat=True,
@@ -248,13 +248,14 @@ def draw_boxes(img, bboxes, color=(0, 0, 255), thick=6):
     return draw_img
 
 
-def search_windows(img, windows, clf, scaler, color_space='RGB', 
+def search_windows(img, windows, clf, scaler,
                     spatial_size=(32, 32), hist_bins=32, 
                     hist_range=(0, 256), orient=9, 
                     pix_per_cell=8, cell_per_block=2, 
                     hog_channel=0, use_spatial_feat=True, 
                     use_hist_feat=True, use_hog_feat=True,
-                    hog_channels=None):
+                    hog_channels=None,
+                    do_output=False, image_name=""):
     """
     Given an image, a list of windows to search in, and a trained classifier & scaler...
     this will search each window on the image and try to classify whether it contains a car.
@@ -285,6 +286,7 @@ def search_windows(img, windows, clf, scaler, color_space='RGB',
     #1) Create an empty list to receive positive detection windows
     on_windows = []
     #2) Iterate over all windows in the list
+    did_output = False
     for window in windows:
         #3) Extract the test window from original image... always ensure that the output
         #   is 64x64 to match training data (that's all the classifier can work with).
@@ -305,23 +307,44 @@ def search_windows(img, windows, clf, scaler, color_space='RGB',
             hog_sub_features = np.hstack((hog_feat1, hog_feat2, hog_feat3)).ravel()
 
         #4) Extract features for that window using single_img_features()
-        features = single_img_features(test_img, color_space=color_space, 
+        features = single_img_features(test_img,
                             spatial_size=spatial_size, hist_bins=hist_bins, 
                             orient=orient, pix_per_cell=pix_per_cell, 
                             cell_per_block=cell_per_block, 
                             hog_channel=hog_channel, use_spatial_feat=use_spatial_feat, 
                             use_hist_feat=use_hist_feat, use_hog_feat=use_hog_feat,
                             hog_features_param=hog_sub_features)
+
         #5) Scale extracted features to be fed to classifier
-        reshaped_features = np.array(features).reshape(1, -1)
+        reshaped_features = np.array(features).reshape(1, -1).astype(np.float64)
         test_features = scaler.transform(reshaped_features)
 
         #6) Predict using your classifier
-        prediction = clf.predict(test_features)
+        prediction = clf.predict(test_features[0])
 
         #7) If positive (prediction == 1) then save the window
         if prediction == 1:
             on_windows.append(window)
+            
+            # This is really slow but was helpful.
+            # if do_output and not did_output:
+                #Debug the feature extraction and scaling for a single window and make sure it is parallel to what
+                #we do for the training.
+                # fig = plt.figure(figsize=(12,4))
+                # plt.subplot(131)
+                # plt.imshow(test_img)
+                # plt.title('Original Image')
+                # plt.subplot(132)
+                # plt.plot(features)
+                # plt.title('Raw Features')
+                # plt.subplot(133)
+                # plt.plot(test_features[0])
+                # plt.title('Normalized Features')
+                # fig.tight_layout()
+                # plt.savefig(os.path.join(OUT_DIR, "x-normalized-vs-undistorted-singleimage-"+image_name+".png"))
+                # plt.close()
+                # did_output = True # prevents saving a file for EVERY window
+            
 
     #8) Return windows for positive detections
     return on_windows
@@ -395,13 +418,14 @@ def process_image(image, do_output=False, image_name="", image_was_jpg=False):
     
     # Do the sliding-window search across the image to find "hot" windows where it appears
     # that there is a car.
-    hot_windows = search_windows(converted_image, windows, svc, X_scaler, color_space=colorspace, 
+    hot_windows = search_windows(converted_image, windows, svc, X_scaler,
                         spatial_size=(spatial, spatial), hist_bins=histbin, 
                         orient=orient, pix_per_cell=pix_per_cell, 
                         cell_per_block=cell_per_block, 
                         hog_channel=hog_channel, use_spatial_feat=use_spatial_feat, 
                         use_hist_feat=use_hist_feat, use_hog_feat=use_hog_feat,
-                        hog_channels=(hog1, hog2, hog3))
+                        hog_channels=(hog1, hog2, hog3),
+                        do_output=do_output, image_name=image_name)
 
     # Instead of drawing the bounding-boxes directly, we'll use a heatmap to find the best fits.
     hot_windows_instantaneous = draw_boxes(image, hot_windows, color=box_color, thick=6)
@@ -435,7 +459,7 @@ def process_image(image, do_output=False, image_name="", image_was_jpg=False):
     
     # Apply threshold to help remove false positives
     #heat = apply_threshold(heat, MIN_BOXES_NEEDED)
-    heat = apply_threshold(running_heatmap, 1)
+    heat = apply_threshold(running_heatmap, 2)
     
     # Visualize the heatmap when displaying
     heatmap = np.clip(heat, 0, 255)
@@ -445,18 +469,21 @@ def process_image(image, do_output=False, image_name="", image_was_jpg=False):
     if do_output:
         fig = plt.figure()
         plt.subplot(121)
-        plt.imshow(hot_window_image)
+        plt.imshow(hot_windows_instantaneous) # instantaneous is the raw boxes
         plt.title('Car Positions')
         plt.subplot(122)
-        plt.imshow(heatmap, cmap='hot')
+        # Render an individual heatmap rather than an averaged one
+        heat = np.zeros_like(image[:,:,0]).astype(np.float)
+        heat = add_heat(heat, hot_windows)
+        plt.imshow(heat, cmap='hot')
         plt.title('Heat Map')
         fig.tight_layout()
         plt.savefig(os.path.join(OUT_DIR, "015-heatmap-"+image_name+".png"))
         plt.close()    
 
     # TODO: SWAP BACK TO USE THE BOUNDING BOXES FROM HEATMAP... RETURNING "instantaneous" IS ONLY TO HELP DEBUG FALSE-POSITIVE BOX MATCHES.
-    #return hot_window_image
-    return hot_windows_instantaneous
+    return hot_window_image
+    #return hot_windows_instantaneous
 
 def add_heat(heatmap, bbox_list):
     # Iterate through list of bboxes
@@ -585,7 +612,7 @@ if len(car_features) > 0:
     print("Normalizing features...")
     t=time.time()
     # Create an array stack of feature vectors
-    X = np.vstack((car_features, notcar_features)).astype(np.float64)                        
+    X = np.vstack((car_features, notcar_features)).astype(np.float64)
     # Fit a per-column scaler
     X_scaler = StandardScaler().fit(X)
     # Apply the scaler to X
@@ -714,9 +741,13 @@ print("Entire script took ",round(script_end_time-script_start_time, 2),"seconds
 
 
 
-# TODO:
-#    Should probably use the 'vis' parameter of get_hog_features() at some point to output the feature-vectors we detect.
-# POSSIBLY JUST EXTRA:
-#   Figure out why HOG subsampling did not make the script significantly faster. Did I do something wrong? Maybe profile the whole script.
+# To debug the way-too-many false-positives in the video-stream:
+#   - Output the feature vector normalization for the video-stream for a few frames and compare to static images.
+#   - Output the images that are examined in search_windows... for static images and for the video.
+
+
+
+# Possible extras:
+#   Could probably use the 'vis' parameter of get_hog_features() at some point to output the feature-vectors we detect.
 #   Could use extra data from Udacity dataset for training (unlikely this will be needed): https://github.com/udacity/self-driving-car/tree/master/annotations
 #       (the classifier has really high accuracy already, so that's probably not one of the bigger problems in the pipeline)
