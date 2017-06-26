@@ -356,6 +356,7 @@ def process_image(image, do_output=False, image_name="", image_was_jpg=False):
     x_start = int(image.shape[1] * 0.35) # ignore the far-left.. it's the shoulder of the road
     windows = slide_window(image, x_start_stop=[x_start, None], y_start_stop=[y_start, None], 
                            xy_window=(128, 128), xy_overlap=(0.5, 0.5))
+
     # Use multiple scales of windows... here we add a second scale which has much smaller windows, only processes
     # the top part of our area of interest (because that's the only place that cars are that small) and adds these
     # windows to our list
@@ -394,70 +395,18 @@ def process_image(image, do_output=False, image_name="", image_was_jpg=False):
     
     # Do the sliding-window search across the image to find "hot" windows where it appears
     # that there is a car.
-    hot_windows = search_windows(image, windows, svc, X_scaler, color_space=colorspace, 
+    hot_windows = search_windows(converted_image, windows, svc, X_scaler, color_space=colorspace, 
                         spatial_size=(spatial, spatial), hist_bins=histbin, 
                         orient=orient, pix_per_cell=pix_per_cell, 
                         cell_per_block=cell_per_block, 
                         hog_channel=hog_channel, use_spatial_feat=use_spatial_feat, 
                         use_hist_feat=use_hist_feat, use_hog_feat=use_hog_feat,
                         hog_channels=(hog1, hog2, hog3))
-                    
-    # TODO: REMOVE? I tried in-lining search_windows() function to see if passing the hog features as parameters was slow,
-    # but it doesn't appear to be a factor.
-    """
-    hot_windows = []
-    # 2) Iterate over all windows in the list
-    for window in windows:
-        # 3) Extract the test window from original image... always ensure output
-          # is 64x64 to match training data (that's all the classifier can work with).
-        test_img = cv2.resize(converted_image[window[0][1]:window[1][1], window[0][0]:window[1][0]], (64, 64))
-        
-        # Do HOG sub-sampling if available.
-        # if hog_channels is None:
-           # hog_sub_features = None
-        # else:
-        # Extract HOG features for this patch
-        window_width = window_height = 64 # we always scale it to be this size in reality
-        nblocks_per_window_x = (window_width // pix_per_cell) - cell_per_block + 1
-        nblocks_per_window_y = (window_height // pix_per_cell) - cell_per_block + 1
-        
-        xpos = window[0][0] // pix_per_cell
-        ypos = window[0][1] // pix_per_cell
-        # TODO: FIXME: This assumes we're using "ALL" channels. It shouldn't assume that even though that's all we're going to use.
-        hog_feat1 = hog1[ypos:ypos+nblocks_per_window_y, xpos:xpos+nblocks_per_window_x].ravel()
-        hog_feat2 = hog2[ypos:ypos+nblocks_per_window_y, xpos:xpos+nblocks_per_window_x].ravel()
-        hog_feat3 = hog3[ypos:ypos+nblocks_per_window_y, xpos:xpos+nblocks_per_window_x].ravel()
-        # print("HOG SUBSAMPLED INDIVIDUAL CHANNEL: ",hog_feat1.shape)
-        hog_sub_features = np.hstack((hog_feat1, hog_feat2, hog_feat3)).ravel()
-
-        # 4) Extract features for that window using single_img_features()
-        features = single_img_features(test_img, color_space=colorspace, 
-                            spatial_size=(spatial,spatial), hist_bins=histbin, 
-                            orient=orient, pix_per_cell=pix_per_cell, 
-                            cell_per_block=cell_per_block, 
-                            hog_channel=hog_channel, use_spatial_feat=use_spatial_feat, 
-                            use_hist_feat=use_hist_feat, use_hog_feat=use_hog_feat,
-                            hog_features_param=hog_sub_features)
-        # 5) Scale extracted features to be fed to classifier
-        reshaped_features = np.array(features).reshape(1, -1)
-        
-        test_features = X_scaler.transform(reshaped_features)
-        # 6) Predict using your classifier
-        prediction = svc.predict(test_features)
-        
-        # TODO: REMOVE... JUST TRYING TO DEBUG THE PREDICTIONS
-        # print("CONFIDENCE: ",svc.decision_function(test_features))
-        
-        
-        # 7) If positive (prediction == 1) then save the window
-        if prediction == 1:
-            hot_windows.append(window)
-    """
 
     # Instead of drawing the bounding-boxes directly, we'll use a heatmap to find the best fits.
+    hot_windows_instantaneous = draw_boxes(image, hot_windows, color=box_color, thick=6)
     if do_output:
-        hot_windows_temp_image = draw_boxes(image, hot_windows, color=box_color, thick=6)
-        plt.imsave(os.path.join(OUT_DIR, "011-hot-windows-"+image_name+".png"), hot_windows_temp_image)
+        plt.imsave(os.path.join(OUT_DIR, "011-hot-windows-"+image_name+".png"), hot_windows_instantaneous)
         plt.close()
         
         plt.imsave(os.path.join(OUT_DIR, "010-boxes-"+image_name+".png"), window_image)
@@ -466,7 +415,7 @@ def process_image(image, do_output=False, image_name="", image_was_jpg=False):
     # TODO: HEATMAPS TO PREVENT FALSE POSITIVES AND COMBINE OVERLAPPING DETECTIONS.
     # == HEATMAPPING THE RECENT X FRAMES ==
     NUM_FRAMES_TO_REMEMBER = 5
-    MIN_BOXES_NEEDED = 15 # remember: there are multiple (often overlappign) boxes per video-frame
+    MIN_BOXES_NEEDED = 15 # remember: there are multiple (often overlapping) boxes per video-frame
     while( len(recent_hot_windows) >= NUM_FRAMES_TO_REMEMBER ):
         # Deletes the oldest set of hot windows
         del recent_hot_windows[0]
@@ -474,11 +423,19 @@ def process_image(image, do_output=False, image_name="", image_was_jpg=False):
     heat = np.zeros_like(image[:,:,0]).astype(np.float)
     
     # Add heat to each box in box list - TODO: DO WE NEED TO ITERATE FOR THIS?
+    # This method just summed them up and then we used a threshold.
+    # for hot_wins in recent_hot_windows:
+        # heat = add_heat(heat, hot_wins)
+    # This method ensures that the pixel was in ALL five of the last frames.
+    running_heatmap = add_heat(heat, recent_hot_windows[0])
     for hot_wins in recent_hot_windows:
+        heat = np.zeros_like(image[:,:,0]).astype(np.float)
         heat = add_heat(heat, hot_wins)
+        running_heatmap[heat == 0] = 0
     
     # Apply threshold to help remove false positives
-    heat = apply_threshold(heat, MIN_BOXES_NEEDED)
+    #heat = apply_threshold(heat, MIN_BOXES_NEEDED)
+    heat = apply_threshold(running_heatmap, 1)
     
     # Visualize the heatmap when displaying
     heatmap = np.clip(heat, 0, 255)
@@ -497,7 +454,9 @@ def process_image(image, do_output=False, image_name="", image_was_jpg=False):
         plt.savefig(os.path.join(OUT_DIR, "015-heatmap-"+image_name+".png"))
         plt.close()    
 
-    return hot_window_image
+    # TODO: SWAP BACK TO USE THE BOUNDING BOXES FROM HEATMAP... RETURNING "instantaneous" IS ONLY TO HELP DEBUG FALSE-POSITIVE BOX MATCHES.
+    #return hot_window_image
+    return hot_windows_instantaneous
 
 def add_heat(heatmap, bbox_list):
     # Iterate through list of bboxes
@@ -541,9 +500,6 @@ CAR_DIR = "../vehicles"
 NOT_CAR_DIR = "../non-vehicles"
 VIDEO_IN_DIR = "."
 VIDEO_OUT_DIR = OUT_DIR # this is easier and the rubric doesn't seem to specify where we have to do it
-CLASSIFIER_FILENAME = "./classifier.pkl"
-CAR_FEATURE_FILENAME = "./car_features.pkl"
-NOTCAR_FEATURE_FILENAME = "./notcar_features.pkl"
 USE_LOADED_CLASSIFIER = True
 SAVE_CLASSIFIER = True # sometimes we might want to re-run but aren't sure we want to overwrite what we have
 
@@ -551,13 +507,17 @@ SAVE_CLASSIFIER = True # sometimes we might want to re-run but aren't sure we wa
 spatial = 32
 histbin = 64
 colorspace = 'HLS' # Can be RGB, HSV, LUV, HLS, YUV, YCrCb
-orient = 16 # 10 was REALLY good also, so if performance is an issue, can decrease to 10
+#orient = 10 # 10 and 16 both do great. 10 is probably a little faster. Apparently the literature says it's useless to go above 9!
+#orient = 16
 pix_per_cell = 8
 cell_per_block = 2
 hog_channel = "ALL" # Can be 0, 1, 2, or "ALL"
 use_spatial_feat = True # Spatial features on or off
 use_hist_feat = True # Histogram features on or off
 use_hog_feat = True # HOG features on or off
+CLASSIFIER_FILENAME = "./classifier-ORIENT"+str(orient)+".pkl"
+CAR_FEATURE_FILENAME = "./car_features-ORIENT"+str(orient)+".pkl"
+NOTCAR_FEATURE_FILENAME = "./notcar_features-ORIENT"+str(orient)+".pkl"
 
 # Ensure the output directory for images/videos exist so that we can write to them.
 if not os.path.exists(VIDEO_OUT_DIR):
