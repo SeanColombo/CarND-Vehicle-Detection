@@ -489,7 +489,7 @@ def draw_labeled_bboxes(img, labels, color=(0,0,255)):
     # Return the image
     return img
 
-    
+
 ###############################################################
 # MAIN EXECUTION BEGINS HERE!!!
     
@@ -507,7 +507,7 @@ SAVE_CLASSIFIER = True # sometimes we might want to re-run but aren't sure we wa
 spatial = 32
 histbin = 64
 colorspace = 'HLS' # Can be RGB, HSV, LUV, HLS, YUV, YCrCb
-#orient = 10 # 10 and 16 both do great. 10 is probably a little faster. Apparently the literature says it's useless to go above 9!
+orient = 10 # 10 and 16 both do great. 10 is probably a little faster. Apparently the literature says it's useless to go above 9... but I saw visible degradation.
 #orient = 16
 pix_per_cell = 8
 cell_per_block = 2
@@ -628,8 +628,7 @@ if USE_LOADED_CLASSIFIER and os.path.isfile(CLASSIFIER_FILENAME):
     print("Loading saved classifier from file...")
     svc = joblib.load(CLASSIFIER_FILENAME)
 else:
-    print('Using spatial binning of:',spatial,
-        'and', histbin,'histogram bins')
+    print('Using spatial binning of:',spatial,'and', histbin,'histogram bins')
     print('Feature vector length:', len(X_train[0]))
     # Use a linear SVC 
     svc = LinearSVC()
