@@ -41,9 +41,15 @@ NUM NON-CARS FOUND FOR TRAINING:  8968
 
 Initial training was very time-consuming so I had the large feature-extraction from the 17,000+ test images, and the training of the classifier all get stored in huge Pickle files.
 
+I used HOG feature detection and combined that with spatial-binning and color-histograms.  Once all three feature-types were concatenated, I had to normalize them so that they would work together instead of one feature-type dominating the classifications.
+
+<img src="https://raw.githubusercontent.com/SeanColombo/CarND-Vehicle-Detection/master/output_images/x-normalized-vs-undistorted-zTHREE-FEATURE-TYPES.png" width="800">
+
 #### 2. Explain how you settled on your final choice of HOG parameters.
 
 Since the datasets were of good size, I started into training the classifier & optimizing it with some of the better parameter customizations I had tried in the lessons.  Initially I used 16 orientations since that gave great results & didn't have too much time-cost on smaller datasets, but when processing the video, these extra orientations were not providing significant return on investment so I eventually decreased that back to 9 which the literature on HOGs suggests is the point of diminishing returns.  I did this experiment of decreasing orientations when my entire pipeline was set up, so I was able to see that the change in results was imperceptible above 10, but that 10 actually did noticably better than 9.
+
+Since I used spatial-binning and color-histograms in addition to HOG features, I tweaked settings for those also.
 
 Some winning configuration parameters for me were:
 ```
@@ -82,45 +88,40 @@ Here, the small windows are rendered in red and the large windows in blue.  Keep
 
 #### 2. Show some examples of test images to demonstrate how your pipeline is working.  What did you do to optimize the performance of your classifier?
 
+The sliding-window search was classifying each window it evaluated as being a "car" or "not car".  When a window was encountered that was a "car", that bounding box was tracked.  Initially this was just displayed on the data to test how we were doing.
 
+<img src="https://raw.githubusercontent.com/SeanColombo/CarND-Vehicle-Detection/master/output_images/011-hot-windows-test1%20-%20Copy.png" width="600">
 
-TODO: YOU ARE HERE IN THE WRITEUP... BELOW IS JUST TEMPLATE/OUTLINE! <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+Interestingly, this did quite well on static images and was attrocious on the videos (way too many false positives).
 
-
-Ultimately I searched on two scales using YCrCb 3-channel HOG features plus spatially binned color and histograms of color in the feature vector, which provided a nice result.  Here are some example images:
-
-![alt text][image4]
----
+The only way that I could find to mitigate these false-positives (which were a bit baffling since my classifier was so accurate in general) was to use heatmaps (more on that below).
 
 ### Video Implementation
 
-####1. Provide a link to your final video output.  Your pipeline should perform reasonably well on the entire project video (somewhat wobbly or unstable bounding boxes are ok as long as you are identifying the vehicles most of the time with minimal false positives.)
+#### 1. Provide a link to your final video output.  Your pipeline should perform reasonably well on the entire project video (somewhat wobbly or unstable bounding boxes are ok as long as you are identifying the vehicles most of the time with minimal false positives.)
+
 Here's a [link to my video result](./project_video.mp4)
 
+#### 2. Describe how (and identify where in your code) you implemented some kind of filter for false positives and some method for combining overlapping bounding boxes.
 
-####2. Describe how (and identify where in your code) you implemented some kind of filter for false positives and some method for combining overlapping bounding boxes.
+To filter out false positives (of which there were many) and combine overlapping-detections, I implemented heatmaps around line 440 of `findVehicles.py`.
 
-I recorded the positions of positive detections in each frame of the video.  From the positive detections I created a heatmap and then thresholded that map to identify vehicle positions.  I then used `scipy.ndimage.measurements.label()` to identify individual blobs in the heatmap.  I then assumed each blob corresponded to a vehicle.  I constructed bounding boxes to cover the area of each blob detected.  
+Examples of an image with bounding-boxes drawn (and the resulting heatmap) is here:
+<img src="https://raw.githubusercontent.com/SeanColombo/CarND-Vehicle-Detection/master/output_images/heatmap_example.png" width="600">
 
-Here's an example result showing the heatmap from a series of frames of video, the result of `scipy.ndimage.measurements.label()` and the bounding boxes then overlaid on the last frame of video:
+<img src="https://raw.githubusercontent.com/SeanColombo/CarND-Vehicle-Detection/master/output_images/heatmap_example_2.png" width="600">
 
-### Here are six frames and their corresponding heatmaps:
+With the heatmaps in hand, I used `scipy.ndimage.measurements.label()` to identify blobs in the heatmap and constructed bounding-boxes around the blobs.
 
-![alt text][image5]
-
-### Here is the output of `scipy.ndimage.measurements.label()` on the integrated heatmap from all six frames:
-![alt text][image6]
-
-### Here the resulting bounding boxes are drawn onto the last frame in the series:
-![alt text][image7]
-
+To additionally remove false-positives, I started remembering the heatmaps from the 5 most recent frames and removing detections that were not significant across several frames.
 
 
 ---
 
-###Discussion
+### Discussion
 
-####1. Briefly discuss any problems / issues you faced in your implementation of this project.  Where will your pipeline likely fail?  What could you do to make it more robust?
+#### 1. Briefly discuss any problems / issues you faced in your implementation of this project.  Where will your pipeline likely fail?  What could you do to make it more robust?
 
-Here I'll talk about the approach I took, what techniques I used, what worked and why, where the pipeline might fail and how I might improve it if I were going to pursue this project further.  
+The approach I took was to build the pipeline step-by-step and debug that it was behaving. Unfortunately, there were a few hiccups. The first issue was that when I implemented HOG sub-sampling, I expected a much more significant performance improvement (because of how much it was talked about).  In reality, my test video sped up, but processing the entire project-video actually took LONGER.  I spent quite a few hours trying to figure out what I was doing wrong before finally coming to the realization that I am likely doing it correctly and that the bulk of the time being spent just lies elsewhere.
 
+Additionally, my pipeline performs greate on the static images but has an insane amount of false-positives in the video streams and I can't find any reason for that.
