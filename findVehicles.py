@@ -12,6 +12,7 @@ from sklearn.externals import joblib
 from sklearn.svm import LinearSVC
 from sklearn.preprocessing import StandardScaler
 from skimage.feature import hog
+from random import randint
 # NOTE: the next import is only valid 
 # for scikit-learn version >= 0.18
 # if you are using scikit-learn <= 0.17 then use this:
@@ -68,6 +69,12 @@ def extract_features(imgs, cspace='RGB', spatial_size=(32, 32),
     for file in imgs:
         # Read in each one by one
         image = mpimg.imread(file)
+
+        # TODO: OMG: REMOVE BEFORE FINAL VERSION!! DEEP DEBUGGING!
+        if(randint(0, 500) == 1):
+            plt.imsave(os.path.join(OUT_DIR, "010-training.png"), image)
+            plt.close()
+
         # apply color conversion if other than 'RGB'
         color_spaces = {
             'HSV': cv2.COLOR_RGB2HSV,
@@ -80,6 +87,12 @@ def extract_features(imgs, cspace='RGB', spatial_size=(32, 32),
             feature_image = cv2.cvtColor(image, color_spaces[cspace])
         else:
             feature_image = np.copy(image)
+
+        # TODO: OMG: REMOVE BEFORE FINAL VERSION!! DEEP DEBUGGING!
+        if(randint(0, 500) == 1):
+            plt.imsave(os.path.join(OUT_DIR, "010-training-color-converted.png"), feature_image)
+            plt.close()
+
 
         # RUBRIC POINT:
         # - Optionally, you can also apply a color transform and append binned color features, as well as histograms of color, to your HOG feature vector.
@@ -395,6 +408,11 @@ def process_image(image, do_output=False, image_name="", image_was_jpg=False):
         #window_image = draw_boxes(window_image, smaller_windows, color=(1.0,0,0), thick=4) # DEBUG: This was just used to render the smaller scaled windows
         plt.imsave(os.path.join(OUT_DIR, "010-all-windows-"+image_name+".png"), window_image)
         plt.close()
+    else:
+        # TODO: OMG: REMOVE BEFORE FINAL VERSION!! DEEP DEBUGGING!
+        if(randint(0, 30) == 1):
+            plt.imsave(os.path.join(OUT_DIR, "010-all-windows-VIDEO.png"), window_image)
+            plt.close()
         
     # Extract the HOG features for the whole image here, then we will pass this into search_windows
     # which will sub-sample from this array to get the HOG features for each desired window.
@@ -409,6 +427,13 @@ def process_image(image, do_output=False, image_name="", image_was_jpg=False):
         converted_image = cv2.cvtColor(image, color_spaces[colorspace])
     else:
         converted_image = np.copy(image)
+
+    if not do_output:
+        # TODO: OMG: REMOVE BEFORE FINAL VERSION!! DEEP DEBUGGING!
+        if(randint(0, 30) == 1):
+            plt.imsave(os.path.join(OUT_DIR, "011-color-converted-VIDEO.png"), converted_image)
+            plt.close()
+
     ch1 = converted_image[:,:,0]
     ch2 = converted_image[:,:,1]
     ch3 = converted_image[:,:,2]
