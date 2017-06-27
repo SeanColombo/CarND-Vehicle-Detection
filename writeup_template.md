@@ -9,16 +9,6 @@ The goals / steps of this project are the following:
 * Run your pipeline on a video stream (start with the test_video.mp4 and later implement on full project_video.mp4) and create a heat map of recurring detections frame by frame to reject outliers and follow detected vehicles.
 * Estimate a bounding box for vehicles detected.
 
-[//]: # (Image References)
-[image1]: ./examples/car_not_car.png
-[image2]: ./examples/HOG_example.jpg
-[image3]: ./examples/sliding_windows.jpg
-[image4]: ./examples/sliding_window.jpg
-[image5]: ./examples/bboxes_and_heat.png
-[image6]: ./examples/labels_map.png
-[image7]: ./examples/output_bboxes.png
-[video1]: ./project_video.mp4
-
 ## [Rubric](https://review.udacity.com/#!/rubrics/513/view) Points
 Here I will consider the rubric points individually and describe how I addressed each point in my implementation.  
 
@@ -41,7 +31,9 @@ NUM NON-CARS FOUND FOR TRAINING:  8968
 
 Initial training was very time-consuming so I had the large feature-extraction from the 17,000+ test images, and the training of the classifier all get stored in huge Pickle files.
 
-I used HOG feature detection and combined that with spatial-binning and color-histograms.  Once all three feature-types were concatenated, I had to normalize them so that they would work together instead of one feature-type dominating the classifications.
+The `extract_features()` function was used to extract features for all of the images at once.  Around line 108, I used HOG feature detection and combined that with spatial-binning (~line 100) and color-histograms (~line 103).  Once all three feature-types were concatenated, I had to normalize them using a StandardScaler (way down near line 631) so that they would work together instead of one feature-type dominating the classifications.
+
+This figure shows an example image from the training-data, as well as its feature-extractions and what the features look like after normalization.
 
 <img src="https://raw.githubusercontent.com/SeanColombo/CarND-Vehicle-Detection/master/output_images/x-normalized-vs-undistorted-zTHREE-FEATURE-TYPES.png" width="800">
 
@@ -64,11 +56,11 @@ use_spatial_feat = True # Spatial features on or off
 use_hist_feat = True # Histogram features on or off
 use_hog_feat = True # HOG features on or off
 ```
-I could probably have gotten away with a smaller "histbin" value, but every time I change one of those values, I have to re-train the classifier which is very time-consuming.
+I could probably have gotten away with a smaller "histbin" value, but every time I change one of those values, I have to re-train the classifier which is very time-consuming. Since I was already running fast enough and with extremely high accuracy (typically 0.9986), I directed my attention onward.
 
-Since I was starting with great parameters that I learned were good from playing around in the lessons ealier, my classifier was above 0.99 almost immediately and the only tweaking I did was related to making it run faster.
+Since I was starting with great parameters that I knew were good from playing around in the lessons ealier, my classifier was above 0.99 almost immediately, so the only additional optimizations I did were related to making it run faster without degrading accuracy.
 
-I noticed that 'HSV' and 'HLS' performed very similar in my earlier experiments but they were both very good.  Since I was above 0.99+ for most of my experiments (and changing these parameters involves significant time investment), I never tested the well-regarded 'YCrCb' color-space.
+I noticed that 'HSV' and 'HLS' performed very similar in my earlier experiments but they were both very good. I did not test the well-regarded 'YCrCb' color-space on my project (although I played with it earlier and got similar results to HLS), but that is another option that could have been interesting to explore if I needed to get even higher accuracy.
 
 #### 3. Describe how (and identify where in your code) you trained a classifier using your selected HOG features (and color features if you used them).
 
@@ -80,7 +72,7 @@ The training is done around line 630 of `findVehicles.py` (but this only execute
 
 #### 1. Describe how (and identify where in your code) you implemented a sliding window search.  How did you decide what scales to search and how much to overlap windows?
 
-Cars aren't expected to be in the sky or up in the trees (or if they are, it's not terribly relevant), so I imediately decided to only search the area of the video that included road.  This included the bottom of the image and not all of the left side.  In the area that was worth searching, I used two sizes: 128px and 64px, each with a 50% overlap.  The 64px windows will only find small cars, so they are only needed "far away" (ie: towards the top of the search area).  I intentionally offset the 64px.
+Cars aren't expected to be in the sky or up in the trees (or if they are, it's not terribly relevant), so I imediately decided to only search the area of the video that included road.  This included the bottom of the image and not all of the left side.  In the area that was worth searching, I used two sizes: 128px and 64px, each with a 50% overlap.  The 64px windows will only find small cars, so they are only needed "far away" (ie: towards the top of the search area).  I intentionally offset the 64px just to have them search a slightly different area (since 64 is half of 128, the overlaps were almost exact prior to adding the offsset).
 
 Here, the small windows are rendered in red and the large windows in blue.  Keep in mind that these windows are overlapping each other by 50% in each direction, so the "squares" are 1/4 the dimension of the each window.
 
@@ -113,9 +105,9 @@ Examples of an image with bounding-boxes drawn (and the resulting heatmap) is he
 
 With the heatmaps in hand, I used `scipy.ndimage.measurements.label()` to identify blobs in the heatmap and constructed bounding-boxes around the blobs.
 
-To additionally remove false-positives, I started remembering the heatmaps from the 5 most recent frames and removing detections that were not significant across several frames.
+To additionally remove false-positives, I started remembering the heatmaps from the 10 most recent frames and removing detections that did not have at least 4 detected boxes in those 10 frames (keep in mind that some pixels will have more than one detection in the same frame, if overlapping windows found detections).
 
-
+I experimented with other methods (such as recording 5 historical frames and only giving heat in pixels that were detected in all 5 frames) but the 
 ---
 
 ### Discussion
@@ -124,4 +116,12 @@ To additionally remove false-positives, I started remembering the heatmaps from 
 
 The approach I took was to build the pipeline step-by-step and debug that it was behaving. Unfortunately, there were a few hiccups. The first issue was that when I implemented HOG sub-sampling, I expected a much more significant performance improvement (because of how much it was talked about).  In reality, my test video sped up, but processing the entire project-video actually took LONGER.  I spent quite a few hours trying to figure out what I was doing wrong before finally coming to the realization that I am likely doing it correctly and that the bulk of the time being spent just lies elsewhere.
 
-Additionally, my pipeline performs greate on the static images but has an insane amount of false-positives in the video streams and I can't find any reason for that.
+A significant problem for me was that I was getting pretty good detections on the static images almost immediately, but would come up with a ton of false-positives on the videos.  The general detections made sense (other than the false-positives) so I didn't think anything was wrong with my pre-processing at first.  I looked for hours to find what could be wrong with my parameters or what could be different between the static images and the video images.  Eventually this was solved by outputting a static image and a similar frame from the video, AFTER color-processing. The results were significantly different.  This helped me realize that the video frames **should** be re-scaled from 0-225 to 0-1 as if they were jpgs.  Earlier attempts at this were something I thought were incorrect because my output video had turned solid black.  The trick is just that for the video-stream, I needed to make sure that my box-drawings were done to the original image (prior to scaling) whereas the static images didn't seem to mind being outputted after being scaled.
+
+Static Image vs Video-Frame after color conversion (without jpg scaling of video frame)
+<img src="https://raw.githubusercontent.com/SeanColombo/CarND-Vehicle-Detection/master/output_images/without_scaling.png" width="600">
+
+Static Image vs Video-Frame after color conversion (with jpg scaling of video frame)
+<img src="https://raw.githubusercontent.com/SeanColombo/CarND-Vehicle-Detection/master/output_images/with_scaling.png" width="600">
+
+With this conversion fixed, the remainder of the pipeline performed as desired.
