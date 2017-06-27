@@ -107,8 +107,7 @@ With the heatmaps in hand, I used `scipy.ndimage.measurements.label()` to identi
 
 To additionally remove false-positives, I started remembering the heatmaps from the 10 most recent frames and removing detections that did not have at least 4 detected boxes in those 10 frames (keep in mind that some pixels will have more than one detection in the same frame, if overlapping windows found detections).
 
-I experimented with other methods (such as recording 5 historical frames and only giving heat in pixels that were detected in all 5 frames) but the 
----
+I experimented with other methods (such as recording 5 historical frames and only giving heat in pixels that were detected in all 5 frames) but that seemed a bit too strict & the method I ended up with was not suffering from false-positives very much, so it didn't seem to be worth the tradeoff of losing some actual detections.
 
 ### Discussion
 
