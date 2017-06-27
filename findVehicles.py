@@ -70,10 +70,9 @@ def extract_features(imgs, cspace='RGB', spatial_size=(32, 32),
         # Read in each one by one
         image = mpimg.imread(file)
 
-        # TODO: OMG: REMOVE BEFORE FINAL VERSION!! DEEP DEBUGGING!
-        if(randint(0, 500) == 1):
-            plt.imsave(os.path.join(OUT_DIR, "010-training.png"), image)
-            plt.close()
+        # if(randint(0, 500) == 1):
+            # plt.imsave(os.path.join(OUT_DIR, "010-training.png"), image)
+            # plt.close()
 
         # apply color conversion if other than 'RGB'
         color_spaces = {
@@ -88,16 +87,14 @@ def extract_features(imgs, cspace='RGB', spatial_size=(32, 32),
         else:
             feature_image = np.copy(image)
 
-        # TODO: OMG: REMOVE BEFORE FINAL VERSION!! DEEP DEBUGGING!
-        if(randint(0, 500) == 1):
-            plt.imsave(os.path.join(OUT_DIR, "010-training-color-converted.png"), feature_image)
-            plt.close()
-
+        # if(randint(0, 500) == 1):
+            # plt.imsave(os.path.join(OUT_DIR, "010-training-color-converted.png"), feature_image)
+            # plt.close()
 
         # RUBRIC POINT:
         # - Optionally, you can also apply a color transform and append binned color features, as well as histograms of color, to your HOG feature vector.
 
-        # TODO: Make this function use the use_spatial_feat, use_hist_feat, and use_hog_feat configurations also (single_img_feat() already does this).
+        # TODO: Make this function use the use_spatial_feat, use_hist_feat, and use_hog_feat configuration flags also (single_img_feat() already does this).
         
         # Apply bin_spatial() to get spatial color features
         spatial_features = bin_spatial(feature_image, size=spatial_size)
@@ -120,8 +117,6 @@ def extract_features(imgs, cspace='RGB', spatial_size=(32, 32),
 
         # Append the new feature vector to the features list
         features.append(np.concatenate((spatial_features, hist_features, hog_features)))
-        # TODO: Use this instead if we wanted to switch back to HOG-only (doesn't have as high of accuracy though).
-        #features.append(hog_features)
 
     # Return list of feature vectors
     return features
@@ -161,14 +156,14 @@ def single_img_features(feature_image, spatial_size=(32, 32),
     if use_hog_feat == True:
         # It's possible we already have the features passed in. If not, then we calculate them.
         if hog_features_param is None:
-            #print("ACTUALLY EXTRACTING HOG FEATURES FOR AN INDIVIDUAL IMAGE. THIS SHOULD NOT HAPPEN WHEN SUBSAMPLING.") # TODO: REMOVE?
+            # This is where we would calculate HOG features manually. In practice, we've already
+            # passed-in the hog features that we obtained from sub-sampling.
             if hog_channel == 'ALL':
                 hog_features = []
                 for channel in range(feature_image.shape[2]):
                     hog_channel = get_hog_features(feature_image[:,:,channel], 
                                         orient, pix_per_cell, cell_per_block, 
                                         vis=False, feature_vec=True)
-                    #print("Normal method's hog-channel shape: ", hog_channel.shape)
                     hog_features.extend(hog_channel)
             else:
                 hog_features = get_hog_features(feature_image[:,:,hog_channel], orient, 
@@ -176,9 +171,6 @@ def single_img_features(feature_image, spatial_size=(32, 32),
         else:
             hog_features = hog_features_param
         #8) Append features to list
-        #print("HOG SUBSMP SHAPE: ",len(hog_features_param)," - HOG NORMAL SHAPE: ",len(hog_features), "  " + " - HOG DATA MISMATCH!! " if len(hog_features_param) != len(hog_features) else "")
-        #print("HOG SUBSMP: ",hog_features_param[0:10])
-        #print("HOG NORMAL: ",hog_features[0:10])
         img_features.append(hog_features)
 
     #9) Return concatenated array of features
@@ -316,7 +308,6 @@ def search_windows(img, windows, clf, scaler,
             hog_feat1 = hog1[ypos:ypos+nblocks_per_window_y, xpos:xpos+nblocks_per_window_x].ravel()
             hog_feat2 = hog2[ypos:ypos+nblocks_per_window_y, xpos:xpos+nblocks_per_window_x].ravel()
             hog_feat3 = hog3[ypos:ypos+nblocks_per_window_y, xpos:xpos+nblocks_per_window_x].ravel()
-            #print("HOG SUBSAMPLED INDIVIDUAL CHANNEL: ",hog_feat1.shape)
             hog_sub_features = np.hstack((hog_feat1, hog_feat2, hog_feat3)).ravel()
 
         #4) Extract features for that window using single_img_features()
@@ -340,29 +331,31 @@ def search_windows(img, windows, clf, scaler,
             on_windows.append(window)
             
             # This is really slow but was helpful.
-            # if do_output and not did_output:
-                #Debug the feature extraction and scaling for a single window and make sure it is parallel to what
-                #we do for the training.
-                # fig = plt.figure(figsize=(12,4))
-                # plt.subplot(131)
-                # plt.imshow(test_img)
-                # plt.title('Original Image')
-                # plt.subplot(132)
-                # plt.plot(features)
-                # plt.title('Raw Features')
-                # plt.subplot(133)
-                # plt.plot(test_features[0])
-                # plt.title('Normalized Features')
-                # fig.tight_layout()
-                # plt.savefig(os.path.join(OUT_DIR, "x-normalized-vs-undistorted-singleimage-"+image_name+".png"))
-                # plt.close()
-                # did_output = True # prevents saving a file for EVERY window
-            
+            #if do_output and not did_output:
+            """
+            if not did_output: # this will overwrite on every frame, for a video
+                # Debug the feature extraction and scaling for a single window and make sure it is parallel to what
+                # we do for the training.
+                fig = plt.figure(figsize=(12,4))
+                plt.subplot(131)
+                plt.imshow(test_img)
+                plt.title('Original Image')
+                plt.subplot(132)
+                plt.plot(features)
+                plt.title('Raw Features')
+                plt.subplot(133)
+                plt.plot(test_features[0])
+                plt.title('Normalized Features')
+                fig.tight_layout()
+                plt.savefig(os.path.join(OUT_DIR, "x-normalized-vs-undistorted-singleimage-"+image_name+".png"))
+                plt.close()
+                did_output = True # prevents saving a file for EVERY window
+            """
 
     #8) Return windows for positive detections
     return on_windows
 
-def process_image(image, do_output=False, image_name="", image_was_jpg=False):
+def process_image(image, do_output=False, image_name="", image_was_jpg=True, return_original=True):
     """
     Given an image (loaded from a file or a frame of a video), 
     process it to find the vehicles and draw bounding boxes around them.
@@ -379,11 +372,13 @@ def process_image(image, do_output=False, image_name="", image_was_jpg=False):
     global recent_hot_windows
 
     image_name, image_extension = os.path.splitext(image_name)
+    image_copy = image.copy()
     
     # Scale the colors from the range 0-255 to be 0-1 which matches training images.
     if image_was_jpg:
         image = image.astype(np.float32)/255
-    box_color = (0,0,1.0) if image_was_jpg else (0,0,255)
+    #box_color = (0,0,1.0) if image_was_jpg else (0,0,255) # since we draw onto the pre-scaled version
+    box_color = (0,0,255)
 
 
     # Get the sliding-window boundaries that we'll search for cars.
@@ -404,15 +399,15 @@ def process_image(image, do_output=False, image_name="", image_was_jpg=False):
     #smaller_windows = slide_window(image, x_start_stop=[x_start, None], y_start_stop=[y_start, y_stop],
     #                       xy_window=(64, 64), xy_overlap=(0.5, 0.5))
     if do_output:
-        window_image = draw_boxes(image, windows, color=box_color, thick=6)
+        window_image = draw_boxes(image_copy, windows, color=box_color, thick=6)
         #window_image = draw_boxes(window_image, smaller_windows, color=(1.0,0,0), thick=4) # DEBUG: This was just used to render the smaller scaled windows
         plt.imsave(os.path.join(OUT_DIR, "010-all-windows-"+image_name+".png"), window_image)
         plt.close()
-    else:
-        # TODO: OMG: REMOVE BEFORE FINAL VERSION!! DEEP DEBUGGING!
-        if(randint(0, 30) == 1):
-            plt.imsave(os.path.join(OUT_DIR, "010-all-windows-VIDEO.png"), window_image)
-            plt.close()
+    #else:
+        # if(randint(0, 30) == 1):
+            # window_image = draw_boxes(image_copy, windows, color=box_color, thick=6)
+            # plt.imsave(os.path.join(OUT_DIR, "010-all-windows-VIDEO.png"), window_image)
+            # plt.close()
         
     # Extract the HOG features for the whole image here, then we will pass this into search_windows
     # which will sub-sample from this array to get the HOG features for each desired window.
@@ -428,11 +423,13 @@ def process_image(image, do_output=False, image_name="", image_was_jpg=False):
     else:
         converted_image = np.copy(image)
 
-    if not do_output:
-        # TODO: OMG: REMOVE BEFORE FINAL VERSION!! DEEP DEBUGGING!
-        if(randint(0, 30) == 1):
-            plt.imsave(os.path.join(OUT_DIR, "011-color-converted-VIDEO.png"), converted_image)
-            plt.close()
+    # if do_output:
+        # plt.imsave(os.path.join(OUT_DIR, "011-color-converted-"+image_name+".png"), converted_image)
+        # plt.close()
+    #else:
+        #if(randint(0, 30) == 1):
+        #    plt.imsave(os.path.join(OUT_DIR, "011-color-converted-VIDEO.png"), converted_image)
+        #    plt.close()
 
     ch1 = converted_image[:,:,0]
     ch2 = converted_image[:,:,1]
@@ -453,7 +450,7 @@ def process_image(image, do_output=False, image_name="", image_was_jpg=False):
                         do_output=do_output, image_name=image_name)
 
     # Instead of drawing the bounding-boxes directly, we'll use a heatmap to find the best fits.
-    hot_windows_instantaneous = draw_boxes(image, hot_windows, color=box_color, thick=6)
+    #hot_windows_instantaneous = draw_boxes(image_copy, hot_windows, color=box_color, thick=6)
     if do_output:
         plt.imsave(os.path.join(OUT_DIR, "011-hot-windows-"+image_name+".png"), hot_windows_instantaneous)
         plt.close()
@@ -461,35 +458,28 @@ def process_image(image, do_output=False, image_name="", image_was_jpg=False):
         plt.imsave(os.path.join(OUT_DIR, "010-boxes-"+image_name+".png"), window_image)
         plt.close()
 
-    # TODO: HEATMAPS TO PREVENT FALSE POSITIVES AND COMBINE OVERLAPPING DETECTIONS.
+    # RUBRIC POINT:
+    # Combine overlapping-detections and remove false-positives.
     # == HEATMAPPING THE RECENT X FRAMES ==
-    NUM_FRAMES_TO_REMEMBER = 5
-    MIN_BOXES_NEEDED = 15 # remember: there are multiple (often overlapping) boxes per video-frame
+    NUM_FRAMES_TO_REMEMBER = 10
+    MIN_BOXES_NEEDED = 3 # remember: there are multiple (often overlapping) boxes per video-frame
     while( len(recent_hot_windows) >= NUM_FRAMES_TO_REMEMBER ):
         # Deletes the oldest set of hot windows
         del recent_hot_windows[0]
     recent_hot_windows.append( hot_windows ) # adds the new frame's hot windows
     heat = np.zeros_like(image[:,:,0]).astype(np.float)
     
-    # Add heat to each box in box list - TODO: DO WE NEED TO ITERATE FOR THIS?
-    # This method just summed them up and then we used a threshold.
-    # for hot_wins in recent_hot_windows:
-        # heat = add_heat(heat, hot_wins)
-    # This method ensures that the pixel was in ALL five of the last frames.
-    running_heatmap = add_heat(heat, recent_hot_windows[0])
+    # Add heat to each box in box list, for each of the last NUM_FRAMES_TO_REMEMBER frames.
     for hot_wins in recent_hot_windows:
-        heat = np.zeros_like(image[:,:,0]).astype(np.float)
         heat = add_heat(heat, hot_wins)
-        running_heatmap[heat == 0] = 0
     
     # Apply threshold to help remove false positives
-    #heat = apply_threshold(heat, MIN_BOXES_NEEDED)
-    heat = apply_threshold(running_heatmap, 2)
+    heat = apply_threshold(heat, MIN_BOXES_NEEDED)
     
     # Visualize the heatmap when displaying
     heatmap = np.clip(heat, 0, 255)
     labels = label(heatmap)
-    hot_window_image = draw_labeled_bboxes(np.copy(image), labels, color=box_color)
+    hot_window_image = draw_labeled_bboxes(np.copy(image_copy), labels, color=box_color)
 
     if do_output:
         fig = plt.figure()
@@ -506,9 +496,8 @@ def process_image(image, do_output=False, image_name="", image_was_jpg=False):
         plt.savefig(os.path.join(OUT_DIR, "015-heatmap-"+image_name+".png"))
         plt.close()    
 
-    # TODO: SWAP BACK TO USE THE BOUNDING BOXES FROM HEATMAP... RETURNING "instantaneous" IS ONLY TO HELP DEBUG FALSE-POSITIVE BOX MATCHES.
+    #return hot_windows_instantaneous # only use this if you want to debug the hot-windows instead of the heatmapped/thresholded bounding boxes.
     return hot_window_image
-    #return hot_windows_instantaneous
 
 def add_heat(heatmap, bbox_list):
     # Iterate through list of bboxes
@@ -764,11 +753,6 @@ if DO_PROJECT_VIDEO:
 script_end_time = time.time()
 print("Entire script took ",round(script_end_time-script_start_time, 2),"seconds\a\a")
 
-
-
-# To debug the way-too-many false-positives in the video-stream:
-#   - Output the feature vector normalization for the video-stream for a few frames and compare to static images.
-#   - Output the images that are examined in search_windows... for static images and for the video.
 
 
 
